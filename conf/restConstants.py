@@ -1,0 +1,1 @@
+API_GET_SOUND = 'http://{}:{}/deviceid/{}'

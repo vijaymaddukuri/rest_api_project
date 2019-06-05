@@ -1,0 +1,55 @@
+void runStages(String tag) {
+
+    docker.image(tag).inside("--privileged=true") {
+
+        stage('Start the webserver'){
+
+        virtualenv venv -p python3.6
+        source venv/bin/activate
+        pip3 install -r requirements.txt
+        cd app/
+        python audi_sound.py
+        echo "You're all set to play the music API based game"
+
+        }
+
+        stage('Run REST API Test Suite'){
+
+            sh '''
+                dir=$(pwd)
+                export PYTHONPATH=$PYTHONPATH:$dir/
+                cd $dir/robot_tests/
+                robot -b debuglogs.txt -L DEBUG:INFO -x junit.xml -d logs --timestampoutputs audio.robot || true
+               '''
+            archiveArtifacts artifacts: 'robot_tests/logs/*.txt', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'robot_tests/logs/*.html', allowEmptyArchive: true
+            archiveArtifacts artifacts: 'robot_tests/logs/*.xml', allowEmptyArchive: true
+        }
+
+        stage('Validate test Results'){
+            step([$class: 'JUnitResultArchiver', testResults: 'robot_tests/logs/junit*.xml'])
+                if (currentBuild.result == "UNSTABLE") {
+                    currentBuild.result = 'FAILURE'
+                }
+        }
+        
+    }
+}
+
+def vs = new devops.VariousStuff1().configure([notifyRecipients : 'vijaymaddukuri@yahoo.com'])
+
+vs.try_node('docker_engine') {
+
+    try {
+        jdk = tool name: 'OpenJDK 1.8.0', type: 'hudson.model.JDK'
+        deleteDir()
+        checkout scm
+        imageTag = vs.ensureDockerImage('devops/build-image')
+        runStages(imageTag)
+    } catch(e) {
+        def color = 'danger'
+        def err_message = "Job: ${JOB_NAME}:${BUILD_NUMBER} got an exception during Build stage: " + e.toString()
+        def info_message = "Job URL: ${BUILD_URL}"
+        throw (e)
+    }
+}
